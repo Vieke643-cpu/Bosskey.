@@ -39,7 +39,6 @@
       height: 100%;
       border: none;
       display: block;
-      pointer-events: auto;
     }
 
     #cover-view img {
@@ -48,6 +47,21 @@
       object-fit: contain;
       display: block;
       background: #0d0d1a;
+    }
+
+    /* KEY CATCHER OVERLAY — transparent, catches keys, lets clicks pass */
+    #key-overlay {
+      position: fixed;
+      inset: 0;
+      z-index: 10;
+      background: transparent;
+      pointer-events: none; /* Let clicks pass through to game */
+      display: none;
+    }
+
+    #key-overlay.active {
+      display: block;
+      pointer-events: none; /* Still let clicks through */
     }
 
     /* Setup overlay */
@@ -202,15 +216,6 @@
       font-weight: bold;
     }
 
-    /* Invisible overlay to catch keys even when iframe is focused */
-    #key-catcher {
-      position: fixed;
-      inset: 0;
-      z-index: 5;
-      pointer-events: none;
-      opacity: 0;
-    }
-
     .hidden {
       display: none !important;
     }
@@ -260,8 +265,8 @@
     <img id="cover-img" src="" alt="cover" />
   </div>
 
-  <!-- KEY CATCHER - invisible element that steals focus to catch keys -->
-  <input id="key-catcher" type="text" style="position:fixed;inset:0;z-index:5;opacity:0;pointer-events:none;width:0;height:0;border:none;outline:none;" />
+  <!-- KEY CATCHER OVERLAY - transparent, catches all key events -->
+  <div id="key-overlay" class="active"></div>
 
   <script>
     (function() {
@@ -273,7 +278,7 @@
       const coverImg   = document.getElementById('cover-img');
       const coverView  = document.getElementById('cover-view');
       const hudKey     = document.getElementById('hud-key');
-      const catcher    = document.getElementById('key-catcher');
+      const keyOverlay = document.getElementById('key-overlay');
 
       let panicKey = '';
       let coverVisible = false;
@@ -320,16 +325,12 @@
           overlay.style.display = 'none';
           coverVisible = false;
           coverView.style.display = 'none';
-
-          // 🔥 FOCUS THE CATCHER so it can capture keys even when iframe is clicked
-          setTimeout(() => {
-            catcher.focus();
-          }, 100);
+          keyOverlay.classList.add('active');
         };
         reader.readAsDataURL(file);
       });
 
-      // ----- BOSS KEY TOGGLE (works even when iframe is focused) -----
+      // ----- BOSS KEY TOGGLE (works via transparent overlay) -----
       function handlePanic(e) {
         if (overlay.style.display !== 'none') return;
         if (e.key === panicKey) {
@@ -337,15 +338,20 @@
           e.stopPropagation();
           coverVisible = !coverVisible;
           coverView.style.display = coverVisible ? 'block' : 'none';
-
-          // Refocus the catcher after toggling
-          setTimeout(() => {
-            catcher.focus();
-          }, 50);
         }
       }
 
-      // Listen on both keydown and keyup
+      // Listen on the overlay (catches all keys because overlay is on top)
+      keyOverlay.addEventListener('keydown', handlePanic);
+      keyOverlay.addEventListener('keyup', (e) => {
+        if (overlay.style.display !== 'none') return;
+        if (e.key === panicKey) {
+          e.preventDefault();
+          e.stopPropagation();
+        }
+      });
+
+      // Also listen on document as backup
       document.addEventListener('keydown', handlePanic);
       document.addEventListener('keyup', (e) => {
         if (overlay.style.display !== 'none') return;
@@ -355,42 +361,25 @@
         }
       });
 
-      // Also listen on the catcher input itself
-      catcher.addEventListener('keydown', handlePanic);
-      catcher.addEventListener('keyup', (e) => {
-        if (overlay.style.display !== 'none') return;
-        if (e.key === panicKey) {
-          e.preventDefault();
-          e.stopPropagation();
-        }
-      });
+      // Make sure overlay can receive focus for key events
+      keyOverlay.setAttribute('tabindex', '0');
+      keyOverlay.focus();
 
-      // 🔥 Force focus back to catcher whenever user clicks anywhere
+      // Keep focus on overlay when clicking anywhere
       document.addEventListener('click', () => {
         if (overlay.style.display === 'none') {
           setTimeout(() => {
-            catcher.focus();
+            keyOverlay.focus();
           }, 10);
         }
       });
 
-      // Also when iframe loads or user interacts with it
-      const iframe = document.getElementById('game-frame');
-      iframe.addEventListener('load', () => {
-        setTimeout(() => catcher.focus(), 200);
-      });
-
-      // Prevent iframe from stealing focus permanently
-      document.addEventListener('focusin', (e) => {
+      // Force focus to overlay periodically (every 2 seconds) to ensure it catches keys
+      setInterval(() => {
         if (overlay.style.display === 'none') {
-          // If focus goes to iframe or anywhere else, bring it back to catcher
-          if (e.target !== catcher && e.target !== keyDisplay && e.target !== imgUpload) {
-            setTimeout(() => {
-              catcher.focus();
-            }, 50);
-          }
+          keyOverlay.focus();
         }
-      });
+      }, 2000);
 
       console.log('✅ Boss key active — press your panic key anytime!');
     })();
