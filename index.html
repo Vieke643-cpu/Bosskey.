@@ -39,6 +39,7 @@
       height: 100%;
       border: none;
       display: block;
+      pointer-events: auto;
     }
 
     #cover-view img {
@@ -179,14 +180,14 @@
       transform: scale(0.98);
     }
 
-    /* Tiny HUD */
+    /* HUD */
     #hud {
       position: fixed;
       bottom: 14px;
       right: 16px;
       z-index: 15;
-      background: rgba(0, 0, 0, 0.5);
-      color: rgba(255, 255, 255, 0.25);
+      background: rgba(0, 0, 0, 0.6);
+      color: rgba(255, 255, 255, 0.3);
       font-size: 11px;
       padding: 4px 10px;
       border-radius: 20px;
@@ -197,11 +198,19 @@
     }
 
     #hud span {
-      color: rgba(126, 255, 197, 0.5);
+      color: rgba(126, 255, 197, 0.6);
       font-weight: bold;
     }
 
-    /* fallback */
+    /* Invisible overlay to catch keys even when iframe is focused */
+    #key-catcher {
+      position: fixed;
+      inset: 0;
+      z-index: 5;
+      pointer-events: none;
+      opacity: 0;
+    }
+
     .hidden {
       display: none !important;
     }
@@ -251,6 +260,9 @@
     <img id="cover-img" src="" alt="cover" />
   </div>
 
+  <!-- KEY CATCHER - invisible element that steals focus to catch keys -->
+  <input id="key-catcher" type="text" style="position:fixed;inset:0;z-index:5;opacity:0;pointer-events:none;width:0;height:0;border:none;outline:none;" />
+
   <script>
     (function() {
       const overlay    = document.getElementById('upload-overlay');
@@ -261,15 +273,15 @@
       const coverImg   = document.getElementById('cover-img');
       const coverView  = document.getElementById('cover-view');
       const hudKey     = document.getElementById('hud-key');
+      const catcher    = document.getElementById('key-catcher');
 
       let panicKey = '';
       let coverVisible = false;
 
-      // ----- capture panic key (only from the input) -----
+      // ----- capture panic key (from the input) -----
       keyDisplay.addEventListener('keydown', (e) => {
         e.preventDefault();
         const key = e.key;
-        // special handling for space / escape / etc.
         let display = key;
         if (key === ' ') display = 'SPACE';
         else if (key === 'Escape') display = 'ESC';
@@ -299,7 +311,6 @@
           return;
         }
 
-        // store panic key
         panicKey = key;
         hudKey.textContent = key === ' ' ? 'SPACE' : key.toUpperCase();
 
@@ -307,41 +318,81 @@
         reader.onload = (ev) => {
           coverImg.src = ev.target.result;
           overlay.style.display = 'none';
-          // reset cover state
           coverVisible = false;
           coverView.style.display = 'none';
+
+          // 🔥 FOCUS THE CATCHER so it can capture keys even when iframe is clicked
+          setTimeout(() => {
+            catcher.focus();
+          }, 100);
         };
         reader.readAsDataURL(file);
       });
 
-      // ----- boss key toggle (global) -----
-      document.addEventListener('keydown', (e) => {
-        // ignore if setup overlay is visible
+      // ----- BOSS KEY TOGGLE (works even when iframe is focused) -----
+      function handlePanic(e) {
         if (overlay.style.display !== 'none') return;
-
-        // if the key matches panicKey, toggle cover
         if (e.key === panicKey) {
-          e.preventDefault();   // prevent any default action
+          e.preventDefault();
+          e.stopPropagation();
           coverVisible = !coverVisible;
           coverView.style.display = coverVisible ? 'block' : 'none';
-        }
-      });
 
-      // also prevent accidental keyup etc.
+          // Refocus the catcher after toggling
+          setTimeout(() => {
+            catcher.focus();
+          }, 50);
+        }
+      }
+
+      // Listen on both keydown and keyup
+      document.addEventListener('keydown', handlePanic);
       document.addEventListener('keyup', (e) => {
         if (overlay.style.display !== 'none') return;
         if (e.key === panicKey) {
           e.preventDefault();
+          e.stopPropagation();
         }
       });
 
-      // extra safety: if user clicks on cover, doesn't break
-      coverView.addEventListener('click', () => {
-        // optional: but we keep it pure
+      // Also listen on the catcher input itself
+      catcher.addEventListener('keydown', handlePanic);
+      catcher.addEventListener('keyup', (e) => {
+        if (overlay.style.display !== 'none') return;
+        if (e.key === panicKey) {
+          e.preventDefault();
+          e.stopPropagation();
+        }
       });
 
-      // ensure the cover image is reset if needed
-      console.log('✅ Boss key ready — upload image, set key, start.');
+      // 🔥 Force focus back to catcher whenever user clicks anywhere
+      document.addEventListener('click', () => {
+        if (overlay.style.display === 'none') {
+          setTimeout(() => {
+            catcher.focus();
+          }, 10);
+        }
+      });
+
+      // Also when iframe loads or user interacts with it
+      const iframe = document.getElementById('game-frame');
+      iframe.addEventListener('load', () => {
+        setTimeout(() => catcher.focus(), 200);
+      });
+
+      // Prevent iframe from stealing focus permanently
+      document.addEventListener('focusin', (e) => {
+        if (overlay.style.display === 'none') {
+          // If focus goes to iframe or anywhere else, bring it back to catcher
+          if (e.target !== catcher && e.target !== keyDisplay && e.target !== imgUpload) {
+            setTimeout(() => {
+              catcher.focus();
+            }, 50);
+          }
+        }
+      });
+
+      console.log('✅ Boss key active — press your panic key anytime!');
     })();
   </script>
 
