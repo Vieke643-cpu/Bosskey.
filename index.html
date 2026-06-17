@@ -16,6 +16,7 @@
       overflow: hidden;
       height: 100vh;
       width: 100vw;
+      user-select: none;
     }
 
     #game-view, #cover-view {
@@ -39,6 +40,7 @@
       height: 100%;
       border: none;
       display: block;
+      pointer-events: auto;
     }
 
     #cover-view img {
@@ -49,19 +51,19 @@
       background: #0d0d1a;
     }
 
-    /* KEY CATCHER OVERLAY — transparent, catches keys, lets clicks pass */
-    #key-overlay {
+    /* KEY TRAP - hidden but always focused */
+    #key-trap {
       position: fixed;
-      inset: 0;
-      z-index: 10;
+      top: 0;
+      left: 0;
+      width: 1px;
+      height: 1px;
+      opacity: 0;
+      pointer-events: none;
+      z-index: 9999;
+      border: none;
+      outline: none;
       background: transparent;
-      pointer-events: none; /* Let clicks pass through to game */
-      display: none;
-    }
-
-    #key-overlay.active {
-      display: block;
-      pointer-events: none; /* Still let clicks through */
     }
 
     /* Setup overlay */
@@ -200,20 +202,29 @@
       bottom: 14px;
       right: 16px;
       z-index: 15;
-      background: rgba(0, 0, 0, 0.6);
-      color: rgba(255, 255, 255, 0.3);
-      font-size: 11px;
-      padding: 4px 10px;
+      background: rgba(0, 0, 0, 0.7);
+      color: rgba(255, 255, 255, 0.4);
+      font-size: 12px;
+      padding: 6px 14px;
       border-radius: 20px;
       pointer-events: none;
       font-family: monospace;
       backdrop-filter: blur(2px);
-      border: 1px solid rgba(255, 255, 255, 0.04);
+      border: 1px solid rgba(255, 255, 255, 0.06);
     }
 
     #hud span {
-      color: rgba(126, 255, 197, 0.6);
+      color: #7effc5;
       font-weight: bold;
+    }
+
+    /* Click shield - forces focus back */
+    #click-shield {
+      position: fixed;
+      inset: 0;
+      z-index: 3;
+      background: transparent;
+      pointer-events: none;
     }
 
     .hidden {
@@ -265,8 +276,11 @@
     <img id="cover-img" src="" alt="cover" />
   </div>
 
-  <!-- KEY CATCHER OVERLAY - transparent, catches all key events -->
-  <div id="key-overlay" class="active"></div>
+  <!-- KEY TRAP - always focused -->
+  <input id="key-trap" type="text" />
+
+  <!-- CLICK SHIELD -->
+  <div id="click-shield"></div>
 
   <script>
     (function() {
@@ -278,10 +292,12 @@
       const coverImg   = document.getElementById('cover-img');
       const coverView  = document.getElementById('cover-view');
       const hudKey     = document.getElementById('hud-key');
-      const keyOverlay = document.getElementById('key-overlay');
+      const keyTrap    = document.getElementById('key-trap');
+      const clickShield = document.getElementById('click-shield');
 
       let panicKey = '';
       let coverVisible = false;
+      let isActive = false;
 
       // ----- capture panic key (from the input) -----
       keyDisplay.addEventListener('keydown', (e) => {
@@ -318,6 +334,7 @@
 
         panicKey = key;
         hudKey.textContent = key === ' ' ? 'SPACE' : key.toUpperCase();
+        isActive = true;
 
         const reader = new FileReader();
         reader.onload = (ev) => {
@@ -325,63 +342,73 @@
           overlay.style.display = 'none';
           coverVisible = false;
           coverView.style.display = 'none';
-          keyOverlay.classList.add('active');
+          
+          // Focus the key trap
+          setTimeout(() => {
+            keyTrap.focus();
+          }, 100);
         };
         reader.readAsDataURL(file);
       });
 
-      // ----- BOSS KEY TOGGLE (works via transparent overlay) -----
+      // ----- THE MAGIC: Force focus back to key trap -----
+      function forceFocus() {
+        if (!isActive || overlay.style.display !== 'none') return;
+        if (document.activeElement !== keyTrap) {
+          keyTrap.focus();
+        }
+      }
+
+      // Focus on every click anywhere
+      document.addEventListener('click', forceFocus);
+      document.addEventListener('touchstart', forceFocus);
+      
+      // Focus on every keydown (catches if focus shifts)
+      document.addEventListener('keydown', forceFocus);
+
+      // Focus on iframe load
+      document.getElementById('game-frame').addEventListener('load', () => {
+        setTimeout(forceFocus, 200);
+      });
+
+      // Aggressive: focus every 500ms
+      setInterval(() => {
+        if (isActive && overlay.style.display === 'none') {
+          if (document.activeElement !== keyTrap) {
+            keyTrap.focus();
+          }
+        }
+      }, 500);
+
+      // ----- BOSS KEY TOGGLE -----
       function handlePanic(e) {
-        if (overlay.style.display !== 'none') return;
+        if (!isActive || overlay.style.display !== 'none') return;
         if (e.key === panicKey) {
           e.preventDefault();
           e.stopPropagation();
           coverVisible = !coverVisible;
           coverView.style.display = coverVisible ? 'block' : 'none';
+          
+          // Refocus after toggle
+          setTimeout(forceFocus, 50);
         }
       }
 
-      // Listen on the overlay (catches all keys because overlay is on top)
-      keyOverlay.addEventListener('keydown', handlePanic);
-      keyOverlay.addEventListener('keyup', (e) => {
-        if (overlay.style.display !== 'none') return;
+      // Listen on key trap
+      keyTrap.addEventListener('keydown', handlePanic);
+      keyTrap.addEventListener('keyup', (e) => {
+        if (!isActive || overlay.style.display !== 'none') return;
         if (e.key === panicKey) {
           e.preventDefault();
           e.stopPropagation();
         }
       });
 
-      // Also listen on document as backup
+      // Also listen on document
       document.addEventListener('keydown', handlePanic);
-      document.addEventListener('keyup', (e) => {
-        if (overlay.style.display !== 'none') return;
-        if (e.key === panicKey) {
-          e.preventDefault();
-          e.stopPropagation();
-        }
-      });
 
-      // Make sure overlay can receive focus for key events
-      keyOverlay.setAttribute('tabindex', '0');
-      keyOverlay.focus();
-
-      // Keep focus on overlay when clicking anywhere
-      document.addEventListener('click', () => {
-        if (overlay.style.display === 'none') {
-          setTimeout(() => {
-            keyOverlay.focus();
-          }, 10);
-        }
-      });
-
-      // Force focus to overlay periodically (every 2 seconds) to ensure it catches keys
-      setInterval(() => {
-        if (overlay.style.display === 'none') {
-          keyOverlay.focus();
-        }
-      }, 2000);
-
-      console.log('✅ Boss key active — press your panic key anytime!');
+      console.log('✅ Boss key ACTIVE — press your panic key anytime!');
+      console.log(`🔑 Panic key set to: "${panicKey}"`);
     })();
   </script>
 
